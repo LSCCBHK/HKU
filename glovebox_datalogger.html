@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Water, O2 & Pressure PPM Logger</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 100%;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            overflow-x: auto;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+            font-size: 14px;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 4px;
+            margin: 5px;
+        }
+        .delete {
+            background-color: #f44336;
+        }
+        .update {
+            background-color: #2196F3;
+        }
+        input, textarea, select {
+            padding: 8px;
+            margin: 5px;
+            width: 150px;
+        }
+        textarea {
+            width: 250px;
+            height: 60px;
+            resize: vertical;
+        }
+        .input-group {
+            margin-bottom: 10px;
+        }
+        label {
+            display: inline-block;
+            width: 190px;
+            vertical-align: top;
+        }
+        .optional {
+            color: #777;
+            font-style: italic;
+            font-size: 0.8em;
+        }
+        .table-container {
+            overflow-x: auto;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+        }
+        .pending {
+            color: #ff6b6b;
+        }
+        .completed {
+            color: #28a745;
+        }
+        .time-format {
+            font-family: monospace;
+        }
+        .username-container {
+            display: flex;
+            align-items: center;
+        }
+        .username-select {
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Water, O2 & Pressure PPM Logger</h1>
+    
+    <div class="section">
+        <h3>Initial Readings</h3>
+        <div class="input-group">
+            <label>User Name:</label>
+            <div class="username-container">
+                <input type="text" id="userName" placeholder="Enter name" list="userNameList">
+                <datalist id="userNameList"></datalist>
+                <select id="savedUserNames" class="username-select" onchange="selectSavedUser()">
+                    <option value="">Select saved user</option>
+                </select>
+            </div>
+        </div>
+        <div class="input-group">
+            <label>O2 Before (ppm):</label>
+            <input type="number" id="o2Before" placeholder="O2 level" step="0.01">
+        </div>
+        <div class="input-group">
+            <label>Water Level Before (ppm): <span class="optional">(optional)</span></label>
+            <input type="number" id="waterBefore" placeholder="Water level" step="0.01">
+        </div>
+        <div class="input-group">
+            <label>Pressure Before (mbar): <span class="optional">(optional)</span></label>
+            <input type="number" id="pressureBefore" placeholder="Pressure level" step="0.1">
+        </div>
+        <div class="input-group">
+            <label>Remarks:</label>
+            <textarea id="remarks" placeholder="Add any notes or remarks"></textarea>
+        </div>
+        <button class="button" onclick="logInitialData()">Start Session</button>
+    </div>
+
+    <div class="section">
+        <h3>Update Final Readings</h3>
+        <div class="input-group">
+            <label>Select User:</label>
+            <select id="userSelect" onchange="filterTableByUser()">
+                <option value="all">Show All Users</option>
+            </select>
+        </div>
+        <button class="button update" onclick="updateLastEntry()">Update Final Readings</button>
+        <button class="button delete" onclick="clearData()">Clear All</button>
+        <button class="button" onclick="downloadCSV()">Download CSV</button>
+    </div>
+
+    <div class="table-container">
+        <table id="dataTable">
+            <thead>
+                <tr>
+                    <th>Start Time</th>
+                    <th>Update Time</th>
+                    <th>User Name</th>
+                    <th>O2 Before (ppm)</th>
+                    <th>Water Before (ppm)</th>
+                    <th>Pressure Before (mbar)</th>
+                    <th>O2 After (ppm)</th>
+                    <th>Water After (ppm)</th>
+                    <th>Pressure After (mbar)</th>
+                    <th>Remarks</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        function formatDateTime(date) {
+            const d = new Date(date);
+            return d.getFullYear() + '-' + 
+                   String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                   String(d.getDate()).padStart(2, '0') + ' ' +
+                   String(d.getHours()).padStart(2, '0') + ':' +
+                   String(d.getMinutes()).padStart(2, '0') + ':' +
+                   String(d.getSeconds()).padStart(2, '0');
+        }
+
+        window.onload = function() {
+            updateTable();
+            updateUserSelect();
+            updateSavedUsersList();
+        };
+
+        function updateSavedUsersList() {
+            // Get all unique user names from localStorage
+            const logs = JSON.parse(localStorage.getItem('dataLogs') || '[]');
+            const userNames = new Set();
+            
+            logs.forEach(log => {
+                if (log.userName && log.userName.trim() !== '') {
+                    userNames.add(log.userName);
+                }
+            });
+            
+            // Update datalist for autocomplete
+            const userNameList = document.getElementById('userNameList');
+            userNameList.innerHTML = '';
+            
+            userNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                userNameList.appendChild(option);
+            });
+            
+            // Update select dropdown
+            const savedUserNames = document.getElementById('savedUserNames');
+            
+            // Clear existing options except the default
+            while (savedUserNames.options.length > 1) {
+                savedUserNames.remove(1);
+            }
+            
+            // Add user names to dropdown
+            userNames.forEach(name => {
+                const option = new Option(name, name);
+                savedUserNames.add(option);
+            });
+        }
+
+        function selectSavedUser() {
+            const selectedUser = document.getElementById('savedUserNames').value;
+            if (selectedUser) {
+                document.getElementById('userName').value = selectedUser;
+            }
+        }
+
+        function updateUserSelect() {
+            const logs = JSON.parse(localStorage.getItem('dataLogs') || '[]');
+            const userSelect = document.getElementById('userSelect');
+            const users = new Set(logs.map(log => log.userName));
+            
+            // Clear existing options except "Show All"
+            while (userSelect.options.length > 1) {
+                userSelect.remove(1);
+            }
+            
+            // Add users to select
+            users.forEach(user => {
+                if (user) {
+                    const option = new Option(user, user);
+                    userSelect.add(option);
+                }
+            });
+        }
+
+        function filterTableByUser() {
+            const selectedUser = document.getElementById('userSelect').value;
+            const tbody = document.getElementById('tableBody');
+            const logs = JSON.parse(localStorage.getItem('dataLogs') || '[]');
+            
+            tbody.innerHTML = '';
+            logs.forEach(log => {
+                if (selectedUser === 'all' || log.userName === selectedUser) {
+                    addRowToTable(log);
+                }
+            });
+        }
+
+        function addRowToTable(log) {
+            const row = document.getElementById('tableBody').insertRow();
+            row.insertCell(0).textContent = formatDateTime(log.startTime);
+            row.insertCell(1).textContent = log.updateTime ? formatDateTime(log.updateTime) : 'Pending';
+            row.insertCell(2).textContent = log.userName;
+            row.insertCell(3).textContent = log.o2Before;
+            row.insertCell(4).textContent = log.waterBefore || '-';
+            row.insertCell(5).textContent = log.pressureBefore || '-';
+            row.insertCell(6).textContent = log.o2After || 'Pending';
+            row.insertCell(7).textContent = log.waterAfter || '-';
+            row.insertCell(8).textContent = log.pressureAfter || '-';
+            row.insertCell(9).textContent = log.remarks || '';
+            const statusCell = row.insertCell(10);
+            statusCell.textContent = log.status;
+            statusCell.className = log.status;
+        }
+
+        function logInitialData() {
+            const userName = document.getElementById('userName').value.trim();
+            const o2Before = document.getElementById('o2Before').value;
+            const waterBefore = document.getElementById('waterBefore').value;
+            const pressureBefore = document.getElementById('pressureBefore').value;
+            const remarks = document.getElementById('remarks').value.trim();
+            
+            if (userName && o2Before) {
+                const startTime = new Date().toISOString();
+                const logEntry = {
+                    startTime,
+                    updateTime: '',
+                    userName,
+                    o2Before,
+                    waterBefore,
+                    pressureBefore,
+                    o2After: '',
+                    waterAfter: '',
+                    pressureAfter: '',
+                    remarks,
+                    status: 'pending'
+                };
+                
+                let logs = JSON.parse(localStorage.getItem('dataLogs') || '[]');
+                logs.push(logEntry);
+                localStorage.setItem('dataLogs', JSON.stringify(logs));
+                
+                updateTable();
+                updateUserSelect();
+                updateSavedUsersList();
+                document.getElementById('o2Before').value = '';
+                document.getElementById('waterBefore').value = '';
+                document.getElementById('pressureBefore').value = '';
+                document.getElementById('remarks').value = '';
+            } else {
+                alert('Please fill in the required fields (User Name and O2 Before)');
+            }
+        }
+
+        function updateLastEntry() {
+            const selectedUser = document.getElementById('userSelect').value;
+            let logs = JSON.parse(localStorage.getItem('dataLogs') || '[]');
+            
+            const index = logs.findLastIndex(log => 
+                log.status === 'pending' && 
+                (selectedUser === 'all' || log.userName === selectedUser)
+            );
+
+            if (index === -1) {
+                alert('No pending entries found for selected user');
+                return;
+            }
+
+            const o2After = prompt('Enter O2 After (ppm):');
+            if (o2After !== null) {
+                const waterAfter = prompt('Enter Water Level After (ppm): (optional, leave empty if not measuring)');
+                const pressureAfter = prompt('Enter Pressure After (mbar): (optional, leave empty if not measuring)');
+                const additionalRemarks = prompt('Add additional remarks (or leave empty):');
+                
+                logs[index].o2After = o2After;
+                logs[index].waterAfter = waterAfter || '';
+                logs[index].pressureAfter = pressureAfter || '';
+                logs[index].updateTime = new Date().toISOString();
+                logs[index].status = 'completed';
+                
+                if (additionalRemarks) {
+                    logs[index].remarks = logs[index].remarks 
+                        ? `${logs[index].remarks}\nUpdate (${formatDateTime(new Date())}): ${additionalRemarks}`
+                        : additionalRemarks;
+                }
+                
+                localStorage.setItem('dataLogs', JSON.stringify(logs));
+                updateTable();
+            }
+        }
+
+        function updateTable() {
+            const tbody = document.getElementById('tableBody');
+            const logs = JSON.parse(localStorage.getItem('dataLogs') || '[]');
+            
+            tbody.innerHTML = '';
+            logs.forEach(log => addRowToTable(log));
+        }
+
+        function clearData() {
+            if (confirm('Are you sure you want to clear all data?')) {
+                localStorage.removeItem('dataLogs');
+                updateTable();
+                updateUserSelect();
+                updateSavedUsersList();
+            }
+        }
+
+        function downloadCSV() {
+            const logs = JSON.parse(localStorage.getItem('dataLogs') || '[]');
+            if (logs.length === 0) return;
+
+            let csv = 'Start Time,Update Time,User Name,O2 Before (ppm),Water Before (ppm),Pressure Before (mbar),O2 After (ppm),Water After (ppm),Pressure After (mbar),Remarks,Status\n';
+            logs.forEach(log => {
+                csv += `"${formatDateTime(log.startTime)}",` +
+                      `"${log.updateTime ? formatDateTime(log.updateTime) : 'Pending'}",` +
+                      `"${log.userName}",` +
+                      `"${log.o2Before}",` +
+                      `"${log.waterBefore || '-'}",` +
+                      `"${log.pressureBefore || '-'}",` +
+                      `"${log.o2After || 'Pending'}",` +
+                      `"${log.waterAfter || '-'}",` +
+                      `"${log.pressureAfter || '-'}",` +
+                      `"${(log.remarks || '').replace(/"/g, '""')}",` +
+                      `"${log.status}"\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'glovebox_log.csv';
+            a.click();
+            window.URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
